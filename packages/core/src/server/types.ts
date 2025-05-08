@@ -75,4 +75,22 @@ export type ServerConfig = {
    * @default 4.5mb
    */
   bodySizeLimit?: number;
+  /**
+   * SSL configuration for the server
+   */
+  ssl?: {
+    /**
+     * Enable SSL
+     * @default false
+     */
+    enabled: boolean;
+    /**
+     * Path to the SSL certificate
+     */
+    cert: string;
+    /**
+     * Path to the SSL key
+     */
+    key: string;
+  };
 };

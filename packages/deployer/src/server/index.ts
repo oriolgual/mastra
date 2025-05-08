@@ -1,11 +1,13 @@
 import { randomUUID } from 'crypto';
+import { readFileSync } from 'fs';
 import { readFile } from 'fs/promises';
+import { createSecureServer } from 'http2';
 import { join } from 'path/posix';
 import { serve } from '@hono/node-server';
 import { serveStatic } from '@hono/node-server/serve-static';
 import { swaggerUI } from '@hono/swagger-ui';
 import { Telemetry } from '@mastra/core';
-import type { Mastra } from '@mastra/core';
+import type { Mastra, Config } from '@mastra/core';
 import { RuntimeContext } from '@mastra/core/runtime-context';
 import { Hono } from 'hono';
 import type { Context, MiddlewareHandler } from 'hono';
@@ -2517,33 +2519,59 @@ export async function createHonoServer(mastra: Mastra, options: ServerBundleOpti
   return app;
 }
 
+function getSecureServerOptions(serverOptions: Config['server']) {
+  let keyPath = serverOptions?.ssl?.key;
+  let certPath = serverOptions?.ssl?.cert;
+
+  if (!keyPath) {
+    throw new Error('Mastra SSL configuration error: Key path is missing when SSL is enabled.');
+  }
+  if (!certPath) {
+    throw new Error('Mastra SSL configuration error: Certificate path is missing when SSL is enabled.');
+  }
+
+  return {
+    key: readFileSync(keyPath),
+    cert: readFileSync(certPath),
+    allowHTTP1: true,
+  };
+}
+
 export async function createNodeServer(mastra: Mastra, options: ServerBundleOptions = {}) {
   const app = await createHonoServer(mastra, options);
   const serverOptions = mastra.getServer();
 
+  const host = serverOptions?.host ?? 'localhost';
   const port = serverOptions?.port ?? (Number(process.env.PORT) || 4111);
+  const isSecure = serverOptions?.ssl?.enabled ?? false;
 
   const server = serve(
     {
       fetch: app.fetch,
       port,
-      hostname: serverOptions?.host ?? 'localhost',
+      hostname: host,
+      ...(isSecure
+        ? {
+            createServer: createSecureServer,
+            serverOptions: getSecureServerOptions(serverOptions),
+          }
+        : {}),
     },
     () => {
       const logger = mastra.getLogger();
-      const host = serverOptions?.host ?? 'localhost';
-      logger.info(` Mastra API running on port http://${host}:${port}/api`);
+      const protocol = isSecure ? 'https' : 'http';
+
+      logger.info(` Mastra API running on port ${protocol}://${host}:${port}/api`);
       if (options?.isDev) {
-        logger.info(`� Open API documentation available at http://${host}:${port}/openapi.json`);
+        logger.info(`� Open API documentation available at ${protocol}://${host}:${port}/openapi.json`);
       }
       if (options?.isDev) {
-        logger.info(`🧪 Swagger UI available at http://${host}:${port}/swagger-ui`);
+        logger.info(`🧪 Swagger UI available at ${protocol}://${host}:${port}/swagger-ui`);
       }
       if (options?.playground) {
-        logger.info(`👨‍💻 Playground available at http://${host}:${port}/`);
+        logger.info(`👨‍💻 Playground available at ${protocol}://${host}:${port}/`);
       }
     },
   );
-
   return server;
 }
